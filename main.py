@@ -31,32 +31,54 @@ BAD_WORDS = [
 def start_handler(message):
     if LOGGING:
         logging.info(f"Пользователь {message.from_user.id} запустил бота.")
-    bot.send_message(
-        message.chat.id,
-        "👋 Привет! Я твой простой Telegram-бот.\n\n"
-        "Доступные команды:\n"
-        "/start – Перезапустить бота\n\n"
-        "Просто напиши мне любой текст, и я помогу найти его в Google! 🔎"
-    )
+    bot.send_message(message.chat.id, "👋 Привет! Я твой простой Telegram-бот.\n\nДоступные команды:\n/start – Перезапустить бота\n/search <текст> или /search – найти текст в Google\n\nПросто напиши мне любой текст, и я помогу найти его в Google! 🔎".replace('<', '&lt;').replace('>', '&gt;'))
 
-# Главный обработчик текстовых сообщений
-@bot.message_handler(func=lambda message: True, content_types=['text'])
-def unknown_message(message):
-    if LOGGING:
-        logging.info(f"Пользователь {message.from_user.id} отправил неизвестное сообщение: {message.text}")
-    search_text = message.text.lower()
-    # Удаляем все пробелы для поиска плохих слов с пробелами
+# Обработчик команды /search с текстом
+@bot.message_handler(commands=['search'])
+def search_handler(message):
+    args = message.text.split(maxsplit=1)
+    if len(args) > 1:
+        search_text = args[1].strip()
+        # Проверка на плохие слова
+        search_text_no_spaces = search_text.replace(' ', '')
+        found_bad = []
+        for bad_word in BAD_WORDS:
+            if bad_word in search_text_no_spaces or re.search(rf"\b{bad_word}\b", search_text):
+                found_bad.append(bad_word)
+        if found_bad:
+            bot.send_message(message.chat.id, f"Это плохой запрос ❌\nПлохие слова: {', '.join(found_bad)}")
+            return
+        keyboard = telebot.types.InlineKeyboardMarkup()
+        search_button = telebot.types.InlineKeyboardButton(
+            text="🔎 Искать в Google",
+            url=f"https://www.google.com/search?q={search_text.replace(' ', '+')}"
+        )
+        keyboard.add(search_button)
+        bot.send_message(
+            message.chat.id,
+            f'Ты написал: <b>"{search_text}"</b>\n\n👇 Найти это в Google:',
+            reply_markup=keyboard
+        )
+    else:
+        msg = bot.send_message(
+            message.chat.id,
+            "🔎 <b>Что найти?</b>\n\n"
+            "1️⃣ Введите поисковый запрос ниже, и я помогу найти его в Google!\n"
+            "2️⃣ Не используйте непристойные слова — такие запросы не обрабатываются.\n\n"
+            "✍️ Жду ваш запрос!"
+        )
+        bot.register_next_step_handler(msg, process_search_text)
+
+def process_search_text(message):
+    search_text = message.text.strip()
     search_text_no_spaces = search_text.replace(' ', '')
     found_bad = []
     for bad_word in BAD_WORDS:
-        # Проверяем наличие запрещённых слов как слитно, так и с пробелами
-        if bad_word in search_text_no_spaces or re.search(rf"\\b{bad_word}\\b", search_text):
+        if bad_word in search_text_no_spaces or re.search(rf"\b{bad_word}\b", search_text):
             found_bad.append(bad_word)
     if found_bad:
-        # Если найдено запрещённое слово — отправляем предупреждение и список слов
         bot.send_message(message.chat.id, f"Это плохой запрос ❌\nПлохие слова: {', '.join(found_bad)}")
         return
-    # Если всё хорошо — предлагаем поискать в Google
     keyboard = telebot.types.InlineKeyboardMarkup()
     search_button = telebot.types.InlineKeyboardButton(
         text="🔎 Искать в Google",
@@ -65,9 +87,14 @@ def unknown_message(message):
     keyboard.add(search_button)
     bot.send_message(
         message.chat.id,
-        f'Ты написал: <b>"{message.text}"</b>\n\n👇 Найти это в Google:',
+        f'Ты написал: <b>"{search_text}"</b>\n\n👇 Найти это в Google:',
         reply_markup=keyboard
     )
+
+# Обработчик всех остальных текстовых сообщений (не команд)
+@bot.message_handler(func=lambda message: message.content_type == 'text' and not message.text.startswith('/'))
+def ignore_text(message):
+    bot.send_message(message.chat.id, "Я реагирую только на команды. Используйте /search для поиска.")
 
 # Точка входа: запуск бота
 if __name__ == "__main__":
